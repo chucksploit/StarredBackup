@@ -34,33 +34,49 @@ func main() {
 		log.Fatalf("Failed to create directory: %v", err)
 	}
 
-	// Make a GET request to the GitHub API to get the starred repositories
-	url := fmt.Sprintf("https://api.github.com/users/%s/starred", *owner)
+	// Fetch and clone starred repositories
+	page := 1
+	perPage := 100
+	for {
+		repositories, err := fetchStarredRepositories(*owner, page, perPage)
+		if err != nil {
+			log.Fatalf("Failed to fetch starred repositories: %v", err)
+		}
+
+		if len(repositories) == 0 {
+			break
+		}
+
+		for _, repo := range repositories {
+			cloneCmd := exec.Command("git", "clone", repo.CloneURL, filepath.Join(*directory, repo.Name))
+			if err := cloneCmd.Run(); err != nil {
+				log.Printf("Failed to clone repository %s: %v", repo.Name, err)
+			} else {
+				log.Printf("Cloned repository: %s", repo.Name)
+			}
+		}
+
+		page++
+	}
+}
+
+func fetchStarredRepositories(owner string, page, perPage int) ([]Repository, error) {
+	url := fmt.Sprintf("https://api.github.com/users/%s/starred?page=%d&per_page=%d", owner, page, perPage)
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Fatalf("Failed to get starred repositories: %v", err)
+		return nil, fmt.Errorf("failed to get starred repositories: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Read the response body
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatalf("Failed to read response body: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %v", err)
 	}
 
-	// Parse the JSON response
 	var repositories []Repository
 	if err := json.Unmarshal(body, &repositories); err != nil {
-		log.Fatalf("Failed to parse JSON response: %v", err)
+		return nil, fmt.Errorf("failed to parse JSON response: %v", err)
 	}
 
-	// Clone each repository
-	for _, repo := range repositories {
-		cloneCmd := exec.Command("git", "clone", repo.CloneURL, filepath.Join(*directory, repo.Name))
-		if err := cloneCmd.Run(); err != nil {
-			log.Printf("Failed to clone repository %s: %v", repo.Name, err)
-		} else {
-			log.Printf("Cloned repository: %s", repo.Name)
-		}
-	}
+	return repositories, nil
 }
